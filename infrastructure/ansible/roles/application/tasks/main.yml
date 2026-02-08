@@ -1,0 +1,206 @@
+---
+# Application Role - Application Deployment and Configuration
+
+- name: "Application | Create application directories"
+  file:
+    path: "{{ item }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+    state: directory
+  loop:
+    - "{{ app_home }}"
+    - "{{ app_state_dir }}"
+    - "{{ app_log_dir }}"
+    - "{{ app_home }}/bin"
+    - "{{ app_home }}/lib"
+    - "{{ app_home }}/conf"
+    - "{{ app_home }}/data"
+  tags: [application, setup]
+
+- name: "Application | Create application user"
+  user:
+    name: "{{ app_user }}"
+    group: "{{ app_group }}"
+    groups: "{{ app_user }}"
+    home: "{{ app_home }}"
+    shell: /usr/sbin/nologin
+    createhome: no
+    state: present
+  tags: [application, users]
+
+- name: "Application | Set directory permissions"
+  file:
+    path: "{{ item }}"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0750"
+    state: directory
+  loop:
+    - "{{ app_home }}"
+    - "{{ app_state_dir }}"
+    - "{{ app_log_dir }}"
+  tags: [application, permissions]
+
+- name: "Application | Create environment configuration"
+  template:
+    src: application.env.j2
+    dest: "{{ app_home }}/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0640"
+  notify: restart application
+  tags: [application, config]
+
+- name: "Application | Create application configuration file"
+  template:
+    src: application.conf.j2
+    dest: "{{ app_home }}/conf/application.conf"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0640"
+  notify: restart application
+  tags: [application, config]
+
+- name: "Application | Create application systemd service"
+  template:
+    src: application.service.j2
+    dest: "/etc/systemd/system/{{ app_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: systemctl daemon-reload
+  tags: [application, service]
+
+- name: "Application | Create application startup script"
+  template:
+    src: application-start.sh.j2
+    dest: "{{ app_home }}/bin/start.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+  tags: [application, scripts]
+
+- name: "Application | Create application health check script"
+  template:
+    src: application-health.sh.j2
+    dest: "{{ app_home }}/bin/health.sh"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0755"
+  tags: [application, scripts]
+
+- name: "Application | Create application logging configuration"
+  template:
+    src: logback.xml.j2
+    dest: "{{ app_home }}/conf/logback.xml"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0640"
+  tags: [application, logging]
+
+- name: "Application | Configure application firewall rules"
+  ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ app_firewall_rules }}"
+  ignore_errors: yes
+  tags: [application, firewall]
+
+- name: "Application | Create logrotate configuration"
+  template:
+    src: logrotate-application.j2
+    dest: "/etc/logrotate.d/{{ app_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [application, logging]
+
+- name: "Application | Enable application service"
+  service:
+    name: "{{ app_name }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: service_enabled | default(true)
+  tags: [application, service]
+
+- name: "Application | Wait for application to be ready"
+  wait_for:
+    host: "{{ app_bind_address if app_bind_address != '0.0.0.0' else 'localhost' }}"
+    port: "{{ app_port }}"
+    delay: 2
+    timeout: 30
+  when: health_check_enabled | default(true)
+  tags: [application, health]
+
+- name: "Application | Perform initial health check"
+  block:
+    - name: "Application | Query health endpoint"
+      uri:
+        url: "{{ app_protocol }}://{{ app_bind_address if app_bind_address != '0.0.0.0' else 'localhost' }}:{{ app_port }}{{ health_check_path }}"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: app_health
+      retries: 5
+      delay: 2
+      until: app_health.status == 200
+      when: health_check_enabled | default(true)
+      tags: [application, health]
+
+    - name: "Application | Log health check success"
+      debug:
+        msg: "Application health check successful: {{ app_health.status }}"
+      when: app_health.status is defined
+      tags: [application, health]
+  rescue:
+    - name: "Application | Handle health check failure"
+      debug:
+        msg: "Application health check failed - review service logs"
+      tags: [application, health]
+  tags: [application, health]
+
+- name: "Application | Create application documentation"
+  copy:
+    content: |
+      # Application: {{ app_name }}
+      
+      ## Configuration
+      - Home: {{ app_home }}
+      - State: {{ app_state_dir }}
+      - Logs: {{ app_log_dir }}
+      - User: {{ app_user }}:{{ app_group }}
+      
+      ## Service Management
+      - Start:   systemctl start {{ app_name }}
+      - Stop:    systemctl stop {{ app_name }}
+      - Status:  systemctl status {{ app_name }}
+      - Logs:    journalctl -u {{ app_name }} -f
+      
+      ## Access
+      - URL: {{ app_protocol }}://{{ ansible_default_ipv4.address }}:{{ app_port }}{{ app_context }}
+      - Health: {{ app_protocol }}://{{ ansible_default_ipv4.address }}:{{ app_port }}{{ health_check_path }}
+      
+      ## Version
+      - Application: {{ app_version }}
+      - Environment: {{ app_env }}
+      - Debug: {{ app_debug }}
+    dest: "{{ app_home }}/README.md"
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "0644"
+  tags: [application, docs]
+
+- name: "Application | Display application deployment complete"
+  debug:
+    msg: |
+      Application deployment completed!
+      - Application: {{ app_name }} v{{ app_version }}
+      - URL: {{ app_protocol }}://{{ ansible_default_ipv4.address }}:{{ app_port }}{{ app_context }}
+      - User: {{ app_user }}:{{ app_group }}
+      - Service: {{ 'enabled' if service_enabled else 'disabled' }}
+      - Health check: {{ app_protocol }}://{{ ansible_default_ipv4.address }}:{{ app_port }}{{ health_check_path }}
+  tags: [application, always]

@@ -1,0 +1,26 @@
+---
+# Monitoring Role - Handlers
+
+- name: restart node-exporter
+  service:
+    name: node-exporter
+    state: restarted
+    enabled: yes
+
+- name: restart rsyslog
+  service:
+    name: rsyslog
+    state: restarted
+    enabled: yes
+
+- name: restart prometheus
+  service:
+    name: prometheus
+    state: restarted
+    enabled: yes
+  ignore_errors: yes
+
+- name: systemctl daemon-reload
+  systemd:
+    daemon_reload: yes
+    enabled: yes

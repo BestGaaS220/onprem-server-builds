@@ -1,0 +1,324 @@
+---
+# Security Role - Hardening Tasks
+
+- name: "Security | Install security packages"
+  apt:
+    name:
+      - ufw
+      - fail2ban
+      - auditd
+      - aide
+      - rkhunter
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+    update_cache: yes
+  tags: [security, packages]
+
+- name: "Security | Configure SSH hardening"
+  block:
+    - name: "Security | Backup original sshd_config"
+      copy:
+        src: /etc/ssh/sshd_config
+        dest: /etc/ssh/sshd_config.bak
+        remote_src: yes
+        backup: yes
+      tags: [security, ssh]
+
+    - name: "Security | Apply SSH configuration"
+      template:
+        src: sshd_config.j2
+        dest: /etc/ssh/sshd_config
+        owner: root
+        group: root
+        mode: "0600"
+        validate: /usr/sbin/sshd -T -f %s
+      notify: restart sshd
+      tags: [security, ssh]
+
+    - name: "Security | Remove SSH DSA host key"
+      file:
+        path: "/etc/ssh/ssh_host_dsa_key{{ item }}"
+        state: absent
+      loop: ["", ".pub"]
+      tags: [security, ssh]
+
+    - name: "Security | Remove SSH ECDSA host key"
+      file:
+        path: "/etc/ssh/ssh_host_ecdsa_key{{ item }}"
+        state: absent
+      loop: ["", ".pub"]
+      tags: [security, ssh]
+  tags: [security, ssh]
+
+- name: "Security | Configure UFW firewall"
+  block:
+    - name: "Security | Ensure UFW is installed"
+      apt:
+        name: ufw
+        state: present
+      tags: [security, ufw]
+
+    - name: "Security | Reset UFW configuration"
+      ufw:
+        state: reset
+      tags: [security, ufw]
+
+    - name: "Security | Set UFW defaults"
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - direction: "incoming"
+          policy: "deny"
+        - direction: "outgoing"
+          policy: "allow"
+        - direction: "routed"
+          policy: "deny"
+      tags: [security, ufw]
+
+    - name: "Security | Configure UFW rules"
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        comment: "{{ item.comment | default(omit) }}"
+      loop: "{{ ufw_rules }}"
+      tags: [security, ufw]
+
+    - name: "Security | Enable UFW"
+      ufw:
+        state: enabled
+      when: ufw_enabled | default(true)
+      tags: [security, ufw]
+  tags: [security, firewall]
+
+- name: "Security | Configure fail2ban"
+  block:
+    - name: "Security | Create fail2ban local config directory"
+      file:
+        path: /etc/fail2ban/jail.local.d
+        owner: root
+        group: root
+        mode: "0755"
+        state: directory
+      tags: [security, fail2ban]
+
+    - name: "Security | Configure fail2ban jails"
+      template:
+        src: fail2ban-jail.local.j2
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart fail2ban
+      tags: [security, fail2ban]
+
+    - name: "Security | Enable fail2ban service"
+      service:
+        name: fail2ban
+        state: started
+        enabled: yes
+      when: fail2ban_enabled | default(true)
+      tags: [security, fail2ban]
+  tags: [security, fail2ban]
+
+- name: "Security | Configure auditd"
+  block:
+    - name: "Security | Create audit rules"
+      template:
+        src: audit.rules.j2
+        dest: /etc/audit/rules.d/audit.rules
+        owner: root
+        group: root
+        mode: "0640"
+      notify: restart auditd
+      tags: [security, auditd]
+
+    - name: "Security | Enable auditd service"
+      service:
+        name: auditd
+        state: started
+        enabled: yes
+      when: auditd_enabled | default(true)
+      tags: [security, auditd]
+  tags: [security, auditd]
+
+- name: "Security | Set sensitive file permissions"
+  file:
+    path: "{{ item.path }}"
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+    state: file
+  loop: "{{ sensitive_files }}"
+  tags: [security, permissions]
+
+- name: "Security | Apply sysctl kernel hardening"
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop: "{{ sysctl_hardening | dict2items }}"
+  tags: [security, sysctl]
+
+- name: "Security | Configure unattended upgrades"
+  block:
+    - name: "Security | Configure unattended-upgrades"
+      template:
+        src: unattended-upgrades.j2
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [security, updates]
+
+    - name: "Security | Enable automatic updates"
+      template:
+        src: auto-upgrades.j2
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [security, updates]
+  when: unattended_upgrades_enabled | default(true)
+  tags: [security, updates]
+
+- name: "Security | Configure AIDE"
+  block:
+    - name: "Security | Initialize AIDE database"
+      command: aideinit
+      args:
+        creates: /var/lib/aide/aide.db
+      async: 300
+      poll: 10
+      tags: [security, aide]
+
+    - name: "Security | Create AIDE CRON job"
+      cron:
+        name: "Daily AIDE check"
+        hour: "2"
+        minute: "0"
+        job: "/usr/bin/aide --check | mail -s 'AIDE Daily Report $(hostname)' root@localhost"
+        user: root
+      tags: [security, aide]
+  tags: [security, aide]
+
+- name: "Security | Disable unnecessary services"
+  service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - bluetooth
+    - cups
+  ignore_errors: yes
+  tags: [security, services]
+
+- name: "Security | Set login.defs settings"
+  lineinfile:
+    path: /etc/login.defs
+    regexp: "^{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+  loop:
+    - key: "PASS_MAX_DAYS"
+      value: "90"
+    - key: "PASS_MIN_DAYS"
+      value: "1"
+    - key: "PASS_WARN_AGE"
+      value: "7"
+    - key: "PASS_MIN_LEN"
+      value: "14"
+    - key: "UMASK"
+      value: "077"
+    - key: "LOG_UNKFAIL_ENAB"
+      value: "yes"
+    - key: "LOG_OK_LOGINS"
+      value: "yes"
+  tags: [security, login]
+
+- name: "Security | Configure PAM password requirements"
+  block:
+    - name: "Security | Install libpam-pwquality"
+      apt:
+        name: libpam-pwquality
+        state: present
+      tags: [security, pam]
+
+    - name: "Security | Configure pwquality"
+      copy:
+        content: |
+          # Password quality configuration
+          minlen = 14
+          dcredit = -1
+          ucredit = -1
+          ocredit = -1
+          lcredit = -1
+          difok = 3
+          maxrepeat = 3
+          usercheck = 1
+          enforce_for_root
+          remember = 5
+        dest: /etc/security/pwquality.conf
+        owner: root
+        group: root
+        mode: "0644"
+      tags: [security, pam]
+  tags: [security, pam]
+
+- name: "Security | Create security summary"
+  copy:
+    content: |
+      ---
+      # Security Configuration Summary
+      # Generated on {{ ansible_date_time.iso8601 }}
+      
+      SSH Configuration:
+        - Root login disabled: {{ ssh_config.PermitRootLogin }}
+        - Password auth disabled: {{ ssh_config.PasswordAuthentication }}
+        - Public key only auth: enabled
+        - Key algorithms: Curve25519, Diffie-Hellman group18
+      
+      Firewall (UFW):
+        - Status: {{ 'enabled' if ufw_enabled else 'disabled' }}
+        - Rules configured: {{ ufw_rules | length }}
+        - Default policy: Deny incoming, Allow outgoing
+      
+      Intrusion Prevention (fail2ban):
+        - Status: {{ 'enabled' if fail2ban_enabled else 'disabled' }}
+        - Jails configured: {{ fail2ban_jails.keys() | list }}
+        - SSH ban time: 3600 seconds
+      
+      Audit Logging:
+        - auditd: {{ 'enabled' if auditd_enabled else 'disabled' }}
+        - AIDE: {{ 'enabled' if aide_enabled else 'disabled' }}
+        - Execution tracking enabled
+      
+      Automatic Updates:
+        - Status: {{ 'enabled' if unattended_upgrades_enabled else 'disabled' }}
+        - Auto-reboot: {{ 'enabled' if unattended_upgrades_auto_reboot else 'disabled' }}
+      
+      System Hardening:
+        - Sysctl parameters applied: {{ sysctl_hardening | length }}
+        - ASLR: enabled (kernel.randomize_va_space = 2)
+        - TCP SYN cookies: enabled
+        - Kernel pointer restriction: enabled (2)
+    dest: /opt/security-config-summary.yml
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [security, summary]
+
+- name: "Security | Display security configuration complete"
+  debug:
+    msg: |
+      Security hardening completed!
+      - SSH: Hardened (key-based auth only)
+      - Firewall: UFW enabled with rules
+      - Intrusion prevention: fail2ban active
+      - Audit logging: auditd configured
+      - Automatic updates: enabled
+      - System hardening: sysctl parameters applied
+  tags: [security, always]

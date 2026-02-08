@@ -1,0 +1,75 @@
+---
+# Monitoring Role - Default Variables
+
+# Prometheus node exporter configuration
+node_exporter_enabled: true
+node_exporter_version: "1.7.0"
+node_exporter_port: 9100
+node_exporter_listen_address: "0.0.0.0"
+
+# Prometheus configuration
+prometheus_enabled: false
+prometheus_version: "2.40.0"
+prometheus_port: 9090
+
+# Grafana configuration
+grafana_enabled: false
+grafana_version: "9.5.0"
+grafana_port: 3000
+grafana_admin_password: "changeme"
+
+# Alerting Configuration
+alerting_enabled: true
+alert_email: "alerts@example.com"
+alert_slack_webhook: ""
+
+# Metrics collection interval
+metrics_scrape_interval: "15s"
+metrics_evaluate_interval: "15s"
+metrics_retention: "15d"
+
+# System monitoring - CPU
+cpu_alert_threshold: 80
+cpu_alert_duration: "5m"
+
+# System monitoring - Memory
+memory_alert_threshold: 85
+memory_alert_duration: "5m"
+
+# System monitoring - Disk
+disk_alert_threshold: 90
+disk_alert_duration: "5m"
+
+# System monitoring - Load
+load_alert_threshold: 4.0
+load_alert_duration: "10m"
+
+# Rsyslog configuration
+rsyslog_enabled: true
+rsyslog_bind_address: "*"
+rsyslog_bind_port: "514"
+
+# Logrotate configuration
+logrotate_retention: 7
+logrotate_compress: true
+
+# System monitoring checks
+enable_cpu_monitoring: true
+enable_memory_monitoring: true
+enable_disk_monitoring: true
+enable_network_monitoring: true
+enable_service_monitoring: true
+
+# Health check configuration
+health_check_port: 8080
+health_check_path: "/health"
+health_check_interval: "30s"
+
+# Firewall rules for monitoring
+monitoring_firewall_rules:
+  - rule: allow
+    port: 9100
+    proto: tcp
+    comment: "Prometheus node exporter"
+    from_ip: "10.0.0.0/8"
+    when: "{{ prometheus_enabled | default(false) }}"

@@ -1,0 +1,13 @@
+// Enable automatic updates
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "1";
+
+// Auto-reboot if needed
+APT::Periodic::Unattended-Upgrade::Mail "root";
+APT::Periodic::Unattended-Upgrade::MailOnlyOnError "true";
+
+// Automatic reboot if needed (typically disabled for servers)
+APT::Periodic::Unattended-Upgrade::AutoReboot "{{ 'true' if unattended_upgrades_auto_reboot else 'false' }}";
+APT::Periodic::Unattended-Upgrade::AutoRebootTime "02:00";

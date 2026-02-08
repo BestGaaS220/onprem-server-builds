@@ -1,0 +1,200 @@
+---
+# Common Role - Core System Configuration
+
+- name: "Common | Gather package facts"
+  package_facts:
+    manager: apt
+  tags: [common, packages]
+
+- name: "Common | Update all packages"
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+    upgrade: safe
+  tags: [common, packages]
+
+- name: "Common | Install base packages"
+  apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: yes
+  tags: [common, packages]
+
+- name: "Common | Install Python packages"
+  pip:
+    name: "{{ python_packages }}"
+    state: present
+    extra_args: "--upgrade"
+  tags: [common, python]
+
+- name: "Common | Set system timezone"
+  timezone:
+    name: "{{ timezone }}"
+  notify: restart chrony
+  tags: [common, timezone]
+
+- name: "Common | Configure NTP chrony"
+  template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart chrony
+  tags: [common, ntp]
+
+- name: "Common | Set system locale"
+  locale_gen:
+    name: "{{ locale }}"
+    state: present
+  tags: [common, locale]
+
+- name: "Common | Set default LC_ALL locale"
+  lineinfile:
+    dest: /etc/environment
+    regexp: "^LC_ALL="
+    line: "LC_ALL={{ locale }}"
+  tags: [common, locale]
+
+- name: "Common | Configure system limits"
+  pam_limits:
+    domain: "{{ item.domain }}"
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+    state: present
+  loop: "{{ system_limits }}"
+  notify: reload limits
+  tags: [common, system]
+
+- name: "Common | Ensure deploy user exists"
+  user:
+    name: "{{ system_user }}"
+    group: "{{ system_group }}"
+    groups: sudo
+    shell: /bin/bash
+    createhome: yes
+    state: present
+  tags: [common, users]
+
+- name: "Common | Configure sudo access"
+  lineinfile:
+    path: /etc/sudoers.d/{{ system_user }}
+    create: yes
+    mode: "0440"
+    regexp: "^{{ system_user }}"
+    line: "{{ system_user }} ALL=(ALL) NOPASSWD: ALL"
+  tags: [common, sudo]
+
+- name: "Common | Ensure .ssh directory exists"
+  file:
+    path: "/home/{{ system_user }}/.ssh"
+    owner: "{{ system_user }}"
+    group: "{{ system_group }}"
+    mode: "0700"
+    state: directory
+  tags: [common, ssh]
+
+- name: "Common | Configure SSH key for deploy user"
+  authorized_key:
+    user: "{{ system_user }}"
+    state: present
+    key: "{{ lookup('file', item) }}"
+  with_fileglob:
+    - "{{ playbook_dir }}/files/authorized_keys/*"
+  ignore_errors: yes
+  tags: [common, ssh]
+
+- name: "Common | Create application directory"
+  file:
+    path: "{{ app_home }}"
+    owner: "{{ system_user }}"
+    group: "{{ system_group }}"
+    mode: "0755"
+    state: directory
+  tags: [common, app]
+
+- name: "Common | Configure swap if needed"
+  block:
+    - name: "Common | Create swap file"
+      command: fallocate -l {{ system_swap_size | default('2G') }} /swapfile
+      args:
+        creates: /swapfile
+      when: system_swap_size is defined
+      tags: [common, swap]
+
+    - name: "Common | Set swap permissions"
+      file:
+        path: /swapfile
+        mode: "0600"
+      when: system_swap_size is defined
+      tags: [common, swap]
+
+    - name: "Common | Initialize swap"
+      command: mkswap /swapfile
+      when: system_swap_size is defined and ansible_swaptotal_mb == 0
+      tags: [common, swap]
+
+    - name: "Common | Enable swap"
+      command: swapon /swapfile
+      when: system_swap_size is defined and ansible_swaptotal_mb == 0
+      tags: [common, swap]
+  tags: [common, swap]
+
+- name: "Common | Configure sysctl parameters"
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - key: vm.swappiness
+      value: "10"
+    - key: net.ipv4.ip_forward
+      value: "0"
+    - key: net.ipv4.conf.all.rp_filter
+      value: "1"
+  tags: [common, sysctl]
+
+- name: "Common | Ensure chrony service is running"
+  service:
+    name: chrony
+    state: started
+    enabled: yes
+  tags: [common, services]
+
+- name: "Common | Create fact cache directory"
+  file:
+    path: /opt/facts
+    owner: root
+    group: root
+    mode: "0755"
+    state: directory
+  tags: [common, facts]
+
+- name: "Common | Cache system facts"
+  copy:
+    content: |
+      ---
+      # System facts cached on {{ ansible_date_time.iso8601 }}
+      hostname: {{ ansible_hostname }}
+      ip_address: {{ ansible_default_ipv4.address }}
+      kernel: {{ ansible_kernel }}
+      os_family: {{ ansible_os_family }}
+      python_version: {{ ansible_python_version }}
+    dest: /opt/facts/system-facts.yml
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [common, facts]
+
+- name: "Common | Display completion message"
+  debug:
+    msg: |
+      Common configuration completed!
+      - Hostname: {{ ansible_hostname }}
+      - IP: {{ ansible_default_ipv4.address }}
+      - Users: {{ system_user }} configured
+      - NTP: Chrony configured
+      - Locale: {{ locale }}
+  tags: [common, always]

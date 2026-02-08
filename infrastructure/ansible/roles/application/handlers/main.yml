@@ -1,0 +1,27 @@
+---
+# Application Role - Handlers
+
+- name: restart application
+  service:
+    name: "{{ app_name }}"
+    state: restarted
+    enabled: yes
+
+- name: reload application
+  service:
+    name: "{{ app_name }}"
+    state: reloaded
+
+- name: stop application
+  service:
+    name: "{{ app_name }}"
+    state: stopped
+
+- name: start application
+  service:
+    name: "{{ app_name }}"
+    state: started
+
+- name: systemctl daemon-reload
+  systemd:
+    daemon_reload: yes

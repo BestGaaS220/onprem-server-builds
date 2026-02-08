@@ -1,0 +1,44 @@
+[Unit]
+Description={{ app_name }} Application Service
+Documentation=file://{{ app_home }}/README.md
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_group }}
+WorkingDirectory={{ app_home }}
+
+# Environment
+EnvironmentFile={{ app_home }}/.env
+
+# Service execution
+ExecStart={{ app_home }}/bin/start.sh
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+
+# Restart policy
+Restart={{ service_restart_policy }}
+RestartSec={{ service_restart_delay }}
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ app_home }} {{ app_state_dir }} {{ app_log_dir }}
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ app_name }}
+
+[Install]
+WantedBy=multi-user.target

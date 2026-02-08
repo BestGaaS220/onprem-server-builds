@@ -1,0 +1,32 @@
+---
+# Security Role - Handlers
+
+- name: restart sshd
+  service:
+    name: sshd
+    state: restarted
+    enabled: yes
+
+- name: restart fail2ban
+  service:
+    name: fail2ban
+    state: restarted
+    enabled: yes
+
+- name: restart auditd
+  service:
+    name: auditd
+    state: restarted
+    enabled: yes
+
+- name: reload ufw
+  ufw:
+    state: reset
+  ignore_errors: yes
+
+- name: restart aide
+  service:
+    name: aide
+    state: restarted
+    enabled: yes
+  ignore_errors: yes

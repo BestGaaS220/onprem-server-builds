@@ -1,0 +1,24 @@
+---
+# Common Role - Handlers
+
+- name: restart chrony
+  service:
+    name: chrony
+    state: restarted
+
+- name: reload limits
+  command: sysctl -p
+
+- name: restart networking
+  service:
+    name: networking
+    state: restarted
+
+- name: reload sysctl
+  command: sysctl -p /etc/sysctl.conf
+
+- name: restart rsyslog
+  service:
+    name: rsyslog
+    state: restarted
+    enabled: yes

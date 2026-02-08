@@ -1,0 +1,252 @@
+---
+# Monitoring Role - Node Exporter and Monitoring Setup
+
+- name: "Monitoring | Install monitoring packages"
+  apt:
+    name:
+      - sysstat
+      - lsof
+      - nethogs
+      - iotop
+      - atop
+      - btop
+    state: present
+    update_cache: yes
+  tags: [monitoring, packages]
+
+- name: "Monitoring | Install Prometheus Node Exporter"
+  block:
+    - name: "Monitoring | Download Node Exporter"
+      get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        checksum: "sha256:https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/sha256sums.txt"
+        mode: "0644"
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Extract Node Exporter"
+      unarchive:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/
+        remote_src: yes
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Install Node Exporter binary"
+      copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: yes
+      notify: restart node-exporter
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Create node-exporter user"
+      user:
+        name: node-exporter
+        shell: /usr/sbin/nologin
+        home: /var/lib/node-exporter
+        createhome: yes
+        state: present
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Create Node Exporter systemd service"
+      template:
+        src: node-exporter.service.j2
+        dest: /etc/systemd/system/node-exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: systemctl daemon-reload
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Enable Node Exporter service"
+      service:
+        name: node-exporter
+        state: started
+        enabled: yes
+        daemon_reload: yes
+      when: node_exporter_enabled | default(true)
+      tags: [monitoring, node-exporter]
+
+    - name: "Monitoring | Verify Node Exporter connectivity"
+      wait_for:
+        host: localhost
+        port: "{{ node_exporter_port }}"
+        delay: 2
+        timeout: 10
+      tags: [monitoring, node-exporter]
+  when: node_exporter_enabled | default(true)
+  tags: [monitoring, node-exporter]
+
+- name: "Monitoring | Configure rsyslog forwarding"
+  block:
+    - name: "Monitoring | Create rsyslog monitoring config"
+      template:
+        src: rsyslog-monitoring.conf.j2
+        dest: /etc/rsyslog.d/99-monitoring.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart rsyslog
+      when: rsyslog_enabled | default(true)
+      tags: [monitoring, rsyslog]
+  tags: [monitoring, logging]
+
+- name: "Monitoring | Configure logrotate policies"
+  block:
+    - name: "Monitoring | Ensure logrotate directories exist"
+      file:
+        path: "/var/log/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+        state: directory
+      loop:
+        - packer-build
+        - application
+        - audit
+      tags: [monitoring, logrotate]
+
+    - name: "Monitoring | Configure logrotate for monitoring logs"
+      template:
+        src: logrotate.j2
+        dest: /etc/logrotate.d/{{ item }}
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - packer-build
+        - application
+        - audit
+        - monitoring
+      tags: [monitoring, logrotate]
+  tags: [monitoring, logging]
+
+- name: "Monitoring | Setup monitoring firewall rules"
+  ufw:
+    rule: allow
+    port: "{{ node_exporter_port }}"
+    proto: tcp
+    from_ip: "{{ item }}"
+    comment: "Prometheus node exporter from {{ item }}"
+  loop:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  when: node_exporter_enabled | default(true)
+  ignore_errors: yes
+  tags: [monitoring, firewall]
+
+- name: "Monitoring | Create monitoring scripts"
+  block:
+    - name: "Monitoring | Create system health check script"
+      template:
+        src: system-health-check.sh.j2
+        dest: /usr/local/bin/system-health-check.sh
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [monitoring, scripts]
+
+    - name: "Monitoring | Create monitoring CRON job"
+      cron:
+        name: "Hourly system health check"
+        hour: "*"
+        minute: "0"
+        job: "/usr/local/bin/system-health-check.sh >> /var/log/system-health.log 2>&1"
+        user: root
+      tags: [monitoring, cron]
+
+    - name: "Monitoring | Create log archival CRON job"
+      cron:
+        name: "Daily log archival"
+        hour: "3"
+        minute: "0"
+        job: "find /var/log -name '*.log' -mtime +{{ logrotate_retention }} -delete"
+        user: root
+      tags: [monitoring, cron]
+  tags: [monitoring, scripts]
+
+- name: "Monitoring | Configure custom metrics collection"
+  block:
+    - name: "Monitoring | Create metrics directory"
+      file:
+        path: /opt/metrics
+        owner: node-exporter
+        group: node-exporter
+        mode: "0755"
+        state: directory
+      tags: [monitoring, metrics]
+
+    - name: "Monitoring | Create custom metrics script"
+      template:
+        src: collect-metrics.sh.j2
+        dest: /usr/local/bin/collect-metrics.sh
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [monitoring, metrics]
+
+    - name: "Monitoring | Schedule custom metrics collection"
+      cron:
+        name: "Collect custom metrics every 5 minutes"
+        minute: "*/5"
+        job: "/usr/local/bin/collect-metrics.sh"
+        user: node-exporter
+      tags: [monitoring, metrics]
+  tags: [monitoring, metrics]
+
+- name: "Monitoring | Create monitoring summary"
+  copy:
+    content: |
+      ---
+      # Monitoring Configuration Summary
+      # Generated on {{ ansible_date_time.iso8601 }}
+      
+      Node Exporter:
+        - Status: {{ 'enabled' if node_exporter_enabled else 'disabled' }}
+        - Port: {{ node_exporter_port }}
+        - Version: {{ node_exporter_version }}
+        - Listen address: {{ node_exporter_listen_address }}
+        - Metrics endpoint: http://{{ ansible_default_ipv4.address }}:{{ node_exporter_port }}/metrics
+      
+      System Monitoring:
+        - CPU monitoring: {{ 'enabled' if enable_cpu_monitoring else 'disabled' }}
+        - CPU alert threshold: {{ cpu_alert_threshold }}%
+        - Memory monitoring: {{ 'enabled' if enable_memory_monitoring else 'disabled' }}
+        - Memory alert threshold: {{ memory_alert_threshold }}%
+        - Disk monitoring: {{ 'enabled' if enable_disk_monitoring else 'disabled' }}
+        - Disk alert threshold: {{ disk_alert_threshold }}%
+        - Load monitoring: {{ 'enabled' if enable_service_monitoring else 'disabled' }}
+      
+      Logging:
+        - Rsyslog: {{ 'enabled' if rsyslog_enabled else 'disabled' }}
+        - Log retention: {{ logrotate_retention }} days
+        - Log compression: {{ 'enabled' if logrotate_compress else 'disabled' }}
+      
+      Health Checks:
+        - Health check endpoint: http://localhost:{{ health_check_port }}{{ health_check_path }}
+        - Check interval: {{ health_check_interval }}
+      
+      Metrics Collection:
+        - Custom metrics: enabled
+        - Scrape interval: {{ metrics_scrape_interval }}
+        - Metrics retention: {{ metrics_retention }}
+    dest: /opt/monitoring-config-summary.yml
+    owner: root
+    group: root
+    mode: "0644"
+  tags: [monitoring, summary]
+
+- name: "Monitoring | Display monitoring configuration complete"
+  debug:
+    msg: |
+      Monitoring configuration completed!
+      - Node Exporter: {{ 'enabled' if node_exporter_enabled else 'disabled' }} (port {{ node_exporter_port }})
+      - Rsyslog: {{ 'enabled' if rsyslog_enabled else 'disabled' }}
+      - Metrics collected: CPU, Memory, Disk, Load, Network
+      - Log retention: {{ logrotate_retention }} days
+      - Health checks: enabled
+  tags: [monitoring, always]

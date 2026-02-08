@@ -1,0 +1,87 @@
+---
+# Application Role - Default Variables
+
+# Application settings
+app_name: elevatediq
+app_version: "1.0.0"
+app_user: elevatediq
+app_group: elevatediq
+app_home: /opt/elevatediq
+app_state_dir: /var/lib/elevatediq
+app_log_dir: /var/log/elevatediq
+
+# Application context
+app_context: "/"
+app_port: 8080
+app_bind_address: "0.0.0.0"
+app_protocol: "http"
+
+# Environment configuration
+app_env: production
+app_debug: false
+app_log_level: INFO
+
+# JVM/Runtime configuration (if applicable)
+java_version: "17"
+jvm_heap_min: "512m"
+jvm_heap_max: "2g"
+jvm_gc_type: "-XX:+UseG1GC"
+
+# Python/Node runtime configuration
+python_version: "3.11"
+node_version: "18"
+
+# Database configuration
+db_host: localhost
+db_port: 5432
+db_name: "{{ app_name }}"
+db_user: "{{ app_name }}"
+db_password: "changeme"
+db_managed: false
+
+# Cache configuration
+cache_backend: redis
+cache_host: localhost
+cache_port: 6379
+cache_ttl: 3600
+
+# Health check configuration
+health_check_enabled: true
+health_check_port: "{{ app_port }}"
+health_check_path: "/health"
+health_check_interval: "30s"
+health_check_timeout: "5s"
+
+# Deployment configuration
+app_deployment_type: binary  # binary, docker, source
+app_artifact_url: "https://artifacts.example.com/{{ app_name }}/{{ app_version }}/{{ app_name }}-{{ app_version }}.tar.gz"
+app_artifact_checksum: ""
+
+# Service configuration
+service_enabled: true
+service_restart_policy: "always"
+service_restart_delay: "5s"
+
+# Security configuration
+enable_ssl: false
+ssl_cert_path: "/etc/ssl/certs/{{ app_name }}.crt"
+ssl_key_path: "/etc/ssl/private/{{ app_name }}.key"
+
+# Logging configuration
+app_logs_retention: 7
+app_logs_compress: true
+app_logs_format: json  # json, text
+
+# User privileges for application
+app_capabilities: []  # NET_BIND_SERVICE, etc.
+
+# Firewall rules for application
+app_firewall_rules:
+  - rule: allow
+    port: "{{ app_port }}"
+    proto: tcp
+    comment: "Application web port"
+  - rule: allow
+    port: 9090
+    proto: tcp
+    comment: "Application metrics port"

@@ -1,0 +1,76 @@
+---
+# Common Role - Default Variables
+
+# System packages
+common_packages:
+  - python3
+  - python3-pip
+  - python3-apt
+  - build-essential
+  - curl
+  - wget
+  - git
+  - vim
+  - nano
+  - htop
+  - net-tools
+  - dnsutils
+  - telnet
+  - zip
+  - unzip
+  - jq
+  - rsync
+  - tmux
+  - cron
+
+# Python packages
+python_packages:
+  - setuptools
+  - wheel
+  - pip
+  - requests
+  - jinja2
+  - pyyaml
+
+# System configuration
+timezone: "UTC"
+ntp_pools:
+  - "0.pool.ntp.org iburst"
+  - "1.pool.ntp.org iburst"
+  - "2.pool.ntp.org iburst"
+  - "3.pool.ntp.org iburst"
+
+# Locale configuration
+locale: "en_US.UTF-8"
+
+# System limits
+system_limits:
+  - domain: "*"
+    type: soft
+    item: nofile
+    value: 65536
+  - domain: "*"
+    type: hard
+    item: nofile
+    value: 65536
+  - domain: "*"
+    type: soft
+    item: nproc
+    value: 32768
+  - domain: "*"
+    type: hard
+    item: nproc
+    value: 32768
+
+# User configuration
+system_user: deploy
+system_group: deploy
+
+# Network configuration
+manage_hostname: true
+hostname_prefix: "golden-image"
+manage_resolv_conf: false
+
+# Logging
+enable_syslog_forwarding: false
+log_retention_days: 7
