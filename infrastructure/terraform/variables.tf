@@ -155,6 +155,87 @@ variable "allowed_app_cidr" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "volume_type" {
+  description = "Type of volume storage (ssd, ceph, etc)"
+  type        = string
+  default     = "ssd"
+}
+
+variable "enable_volumes" {
+  description = "Enable block storage volumes"
+  type        = bool
+  default     = true
+}
+
+variable "volume_count" {
+  description = "Number of volumes to create"
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.volume_count >= 0 && var.volume_count <= 10
+    error_message = "Volume count must be between 0 and 10."
+  }
+}
+
+variable "enable_snapshots" {
+  description = "Enable volume snapshots"
+  type        = bool
+  default     = false
+}
+
+variable "enable_backups" {
+  description = "Enable automated backups"
+  type        = bool
+  default     = false
+}
+
+variable "backup_schedule" {
+  description = "Backup schedule (cron format)"
+  type        = string
+  default     = "0 2 * * *"
+}
+
+variable "public_key" {
+  description = "SSH public key for instance access"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "ssh_allowed_cidr" {
+  description = "CIDR block allowed for SSH access"
+  type        = string
+  default     = "10.0.0.0/8"
+  validation {
+    condition     = can(cidrhost(var.ssh_allowed_cidr, 0))
+    error_message = "Must be a valid CIDR block."
+  }
+}
+
+variable "app_allowed_cidr" {
+  description = "CIDR block allowed for application access"
+  type        = string
+  default     = "10.0.0.0/8"
+}
+
+variable "app_ports" {
+  description = "Application ports to allow inbound"
+  type        = list(number)
+  default     = [80, 443]
+}
+
+variable "enable_floating_ips" {
+  description = "Enable floating IPs for instances"
+  type        = bool
+  default     = true
+}
+
+variable "dns_servers" {
+  description = "DNS servers for the subnet"
+  type        = list(string)
+  default     = ["8.8.8.8", "8.8.4.4"]
+}
+
 # Tags
 variable "tags" {
   description = "Tags to apply to all resources"
