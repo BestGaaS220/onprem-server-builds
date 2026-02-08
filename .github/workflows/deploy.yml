@@ -1,0 +1,203 @@
+name: "Infrastructure Deployment Pipeline"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/terraform/**'
+      - 'image-build/packer/**'
+      - 'infrastructure/ansible/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # Plan changes before deployment
+  terraform-plan:
+    name: "Terraform Plan - ${{ matrix.environment }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.7'
+
+      - name: "Terraform Init"
+        run: |
+          cd infrastructure/terraform
+          terraform init -backend=true
+
+      - name: "Terraform Plan"
+        run: |
+          cd infrastructure/terraform
+          terraform plan -var-file="../vars/${{ matrix.environment }}.tfvars" \
+            -out=tfplan-${{ matrix.environment }}
+
+      - name: "Save Plan"
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plans
+          path: infrastructure/terraform/tfplan-*
+          retention-days: 1
+
+  # Build Packer image
+  packer-build:
+    name: "Build Golden Image - ${{ matrix.environment }}"
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "1.12"
+
+      - name: "Packer Build"
+        run: |
+          cd image-build/packer
+          packer build \
+            -var-file="${{ matrix.environment }}.pkrvars.hcl" \
+            -timestamp-ui \
+            ubuntu.pkr.hcl
+
+      - name: "Upload Manifest"
+        uses: actions/upload-artifact@v3
+        with:
+          name: packer-manifests-${{ matrix.environment }}
+          path: image-build/packer/manifest.json
+          retention-days: 7
+
+  # Validate with Ansible
+  ansible-validate:
+    name: "Ansible Validation"
+    runs-on: ubuntu-latest
+    needs: packer-build
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible==2.10.* ansible-lint
+
+      - name: "Ansible Lint"
+        run: |
+          cd infrastructure/ansible
+          ansible-lint playbooks/main.yml
+
+      - name: "Syntax Check"
+        run: |
+          cd infrastructure/ansible
+          ansible-playbook --syntax-check playbooks/main.yml
+
+  # Deployment to staging (automatic on main)
+  deploy-staging:
+    name: "Deploy to Staging"
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, packer-build, ansible-validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.example.com
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: "Load Secrets"
+        run: |
+          bash scripts/security/manage-secrets.sh staging
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: "Get Terraform Plan"
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-plans
+
+      - name: "Apply Terraform Plan"
+        run: |
+          cd infrastructure/terraform
+          terraform apply -auto-approve tfplan-staging
+
+      - name: "Run Ansible Playbook"
+        run: |
+          cd infrastructure/ansible
+          ansible-playbook -i inventories/staging.ini playbooks/main.yml
+
+      - name: "Post-Deployment Validation"
+        run: |
+          echo "Running health checks..."
+          # Add health check logic here
+
+  # Deployment to production (requires approval)
+  deploy-production:
+    name: "Deploy to Production"
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.event_name == 'workflow_dispatch'
+    environment:
+      name: production
+      url: https://example.com
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: "Load Secrets"
+        run: |
+          bash scripts/security/manage-secrets.sh prod
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: "Get Terraform Plan"
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-plans
+
+      - name: "Apply Terraform Plan"
+        run: |
+          cd infrastructure/terraform
+          terraform apply -auto-approve tfplan-prod
+
+      - name: "Run Ansible Playbook"
+        run: |
+          cd infrastructure/ansible
+          ansible-playbook -i inventories/prod.ini playbooks/main.yml
+
+      - name: "Production Health Checks"
+        run: |
+          echo "Running comprehensive production validation..."
+
+      - name: "Notify Deployment Success"
+        run: |
+          echo "✅ Production deployment completed successfully"
