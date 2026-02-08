@@ -1,30 +1,60 @@
-# Production Environment Variables
-environment            = "production"
-instance_count         = 3
-instance_flavor        = "m1.xlarge"
-image_name             = "Golden-Image-Ubuntu-20.04"
-instance_name_prefix   = "prod-elevatediq"
+# Production Environment Terraform Variables
+# Used for production deployment with HA and disaster recovery
 
-# Networking
-subnet_cidr         = "10.30.0.0/24"
-allowed_ssh_cidr    = ["10.0.0.0/8"]
-allowed_app_cidr    = ["0.0.0.0/0"]
+# OpenStack Configuration
+os_auth_url  = "https://openstack.example.com:5000/v3"
+os_username  = ""  # Set via environment variable or GitHub Secret
+os_password  = ""  # Set via environment variable or GitHub Secret
+os_project_name = "production-project"
+os_region    = "RegionOne"
 
-# Features
-enable_monitoring  = true
-enable_backup      = true
-backup_retention_days = 30
-enable_ha          = true
+# Environment
+environment  = "production"
+project_name = "elevatediq"
+
+# Networking (Multi-zone HA)
+network_name      = "prod-network"
+subnet_cidr       = "10.0.3.0/24"
+external_network  = "external"
+
+# Instance Configuration (High Availability)
+instance_count   = 3
+instance_flavor  = "m1.2xlarge"
+instance_name    = "elevatediq-prod"
+key_pair_name    = "prod-key"
+ssh_user         = "ubuntu"
 
 # Storage
-volume_size = 100
-monitoring_agent = "prometheus"
+volume_size      = 200  # GB
+volume_type      = "ssd"
 
-# High Availability
+# Tags
 tags = {
-  ManagedBy   = "Terraform"
-  Module      = "Golden-Image"
-  CostCenter  = "Enterprise"
-  Environment = "Production"
-  SLA         = "99.99%"
+  Environment         = "production"
+  Project            = "elevatediq"
+  ManagedBy          = "Terraform"
+  CreatedAt          = "2026-02-08"
+  CostCenter         = "operations"
+  DataClassification = "restricted"
+  BackupRequired     = "true"
+  DisasterRecovery   = "true"
 }
+
+# Security (Enhanced for production)
+security_group_names = ["default", "elevatediq-prod", "elevatediq-prod-internal"]
+enable_security_group_rules = true
+
+# Monitoring (Real-time monitoring)
+enable_monitoring = true
+monitoring_interval = 10
+
+# High Availability Settings
+enable_load_balancing = true
+enable_auto_scaling   = true
+min_instances         = 3
+max_instances         = 6
+
+# Backup and Disaster Recovery
+enable_backups = true
+backup_retention_days = 30
+enable_replication = true
