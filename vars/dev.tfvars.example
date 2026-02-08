@@ -1,0 +1,23 @@
+# Sample Packer Variables
+# Copy to image-build/packer/variables.pkrvars.hcl and update values
+
+# OpenStack Credentials
+os_auth_url  = "https://openstack.example.com:5000/v3"
+os_username  = ""
+os_password  = ""
+os_project   = "admin"
+os_region    = "RegionOne"
+
+# Image Configuration
+source_image   = "Ubuntu 20.04 LTS"
+image_name     = "Golden-Image-Ubuntu-20.04"
+version        = "1.0.0"
+environment    = "dev"
+
+# Instance Configuration
+flavor_name = "m1.large"
+network     = "private"
+
+# SSH Configuration
+ssh_username = "ubuntu"
+ssh_timeout  = "10m"

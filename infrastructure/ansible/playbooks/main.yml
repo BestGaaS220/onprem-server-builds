@@ -1,0 +1,78 @@
+---
+# Main Ansible Playbook for Golden Image Configuration
+
+- name: Configure Golden Image Infrastructure
+  hosts: all
+  become: true
+  gather_facts: yes
+  
+  vars:
+    # Application settings
+    app_user: elevatediq
+    app_group: elevatediq
+    app_home: /opt/elevatediq
+    
+  pre_tasks:
+    - name: Validate environment
+      assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_default_ipv4.address is defined
+        fail_msg: "Environment validation failed"
+    
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+  
+  roles:
+    - role: common
+      tags: [common, always]
+    
+    - role: security
+      tags: [security, hardening]
+    
+    - role: monitoring
+      tags: [monitoring, observability]
+      when: enable_monitoring | default(false)
+    
+    - role: application
+      tags: [application, deployment]
+  
+  post_tasks:
+    - name: Verify deployment
+      block:
+        - name: Check service status
+          service:
+            name: elevatediq
+            state: started
+            enabled: yes
+        
+        - name: Verify application health
+          uri:
+            url: "http://localhost:8080/health"
+            method: GET
+            status_code: 200
+          register: health_check
+          retries: 3
+          delay: 5
+          until: health_check.status == 200
+        
+        - name: Display deployment summary
+          debug:
+            msg: |
+              Deployment completed successfully!
+              Hostname: {{ ansible_hostname }}
+              IP Address: {{ ansible_default_ipv4.address }}
+              Health Status: {{ health_check.status }}
+      
+      rescue:
+        - name: Display deployment error
+          debug:
+            msg: "Deployment verification failed - review logs"
+          notify: deployment_failed
+  
+  handlers:
+    - name: deployment_failed
+      debug:
+        msg: "Deployment completed with errors"

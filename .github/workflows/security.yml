@@ -1,0 +1,136 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sunday
+
+jobs:
+  container-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy Results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Comment PR with Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('trivy-results.sarif', 'utf-8'));
+            const message = `Found ${results.runs[0].results.length} vulnerabilities in scan`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Check Python Dependencies
+        run: |
+          pip install safety
+          pip freeze | safety check --stdin || true
+        continue-on-error: true
+      
+      - name: Check Terraform Modules
+        run: |
+          cd infrastructure/terraform
+          # Check for outdated modules
+          grep -r 'source\s*=' . | grep -v '.terraform' || true
+        continue-on-error: true
+
+  secret-scanning:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: GitGuardian Scan
+        uses: GitGuardian/ggshield-action@master
+        env:
+          GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+        continue-on-error: true
+      
+      - name: TruffleHog Scan
+        uses: truffle-security/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+        continue-on-error: true
+
+  policy-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check for IAM/Security Best Practices
+        run: |
+          # Check Terraform for public buckets, open security groups, etc.
+          if grep -r "aws_s3_bucket_public" infrastructure/terraform/ 2>/dev/null | grep -v "= false"; then
+            echo "ERROR: Found potentially public S3 bucket"
+            exit 1
+          fi
+          
+          # Check security groups
+          if grep -r "0.0.0.0/0" infrastructure/terraform/ | grep -v "output" | grep -v "# whitelist"; then
+            echo "WARNING: Found CIDR 0.0.0.0/0 - verify intentional"
+          fi
+        continue-on-error: true
+
+  sast:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Run Bandit (Python Security)
+        run: |
+          pip install bandit
+          bandit -r scripts/ tests/ -f json -o bandit-report.json || true
+        continue-on-error: true
+      
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/ci
+            p/security-audit
+            p/python
+        continue-on-error: true

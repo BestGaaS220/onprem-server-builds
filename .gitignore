@@ -1,0 +1,107 @@
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Build and dependencies
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+ENV/
+node_modules/
+.npm/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+override.tf
+override.tf.json
+*.tfplan
+*.hcl.json
+
+# Packer
+crash.log
+packer_cache/
+*.iso
+*.box
+
+# Ansible
+*.retry
+ansible/inventory/hosts.local
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+*.crt
+*.cert
+kubeconfig
+.aws/credentials
+.aws/config
+
+# Logs
+logs/
+*.log
+*.logs
+
+# Test coverage
+.coverage
+.pytest_cache/
+htmlcov/
+coverage.xml
+
+# Performance
+.benchmarks/
+benchmark-results.json
+
+# Documentation
+site/
+docs/_build/
+
+# Temporary files
+.tmp/
+tmp/
+*.tmp
+*.bak
+
+# OS specific
+Thumbs.db
+.AppleDouble
+.LSOverride
+._*
+
+# Project specific
+vars/local/
+vars/override/
+certs/
+keys/
+*.iso
+boot.log
+vagrant/.vagrant/
+.vagrant/
+
+# CI/CD
+.github/workflows/*.log
+
+# Temporary terraform/ansible files
+*.backup
+*.orig
+plan.tfplan
+ansible.log

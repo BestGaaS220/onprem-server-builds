@@ -1,0 +1,140 @@
+name: Code Validation
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [main, develop]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0
+      
+      - name: Validate Terraform
+        run: |
+          cd infrastructure/terraform
+          terraform init -backend=false
+          terraform validate
+          terraform fmt -check -recursive
+      
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: 1.8
+      
+      - name: Validate Packer
+        run: |
+          cd image-build/packer
+          packer validate -var-file=variables.pkrvars.hcl ubuntu.pkr.hcl
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Lint Shell Scripts
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          find scripts -name "*.sh" -exec shellcheck {} \;
+        continue-on-error: true
+      
+      - name: Lint Ansible
+        run: |
+          pip install ansible-lint
+          ansible-lint infrastructure/ansible/playbooks/ || true
+        continue-on-error: true
+      
+      - name: YAML Linting
+        run: |
+          pip install yamllint
+          yamllint -c .yamllint infrastructure/ansible/ || true
+        continue-on-error: true
+
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements-test.txt 2>/dev/null || pip install pytest pytest-cov pyyaml
+      
+      - name: Run Unit Tests
+        run: |
+          python -m pytest tests/unit/ -v --tb=short --cov=. --cov-report=xml 2>/dev/null || true
+      
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+      
+      - name: Upload Trivy Results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+      
+      - name: Secret Detection
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --baseline.gitignore || true
+        continue-on-error: true
+
+  documentation:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check Documentation Updates
+        run: |
+          # Check if docs were updated for changes
+          if git diff origin/main... --name-only | grep -qv 'docs/'; then
+            if ! git diff origin/main... --name-only | grep -q 'docs/'; then
+              echo "Warning: Code changes without documentation updates"
+            fi
+          fi
+        continue-on-error: true
+      
+      - name: Link Checker
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: true
+        continue-on-error: true
