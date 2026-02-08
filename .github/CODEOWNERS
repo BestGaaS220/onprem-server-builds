@@ -1,0 +1,31 @@
+# CODEOWNERS - GitHub Code Review Assignment
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for all files
+* @kushin77
+
+# Documentation
+docs/** @kushin77
+*.md @kushin77
+CONTRIBUTING.md @kushin77
+ARCHITECTURE.md @kushin77
+
+# Infrastructure as Code
+infrastructure/terraform/** @kushin77
+infrastructure/ansible/** @kushin77
+vars/** @kushin77
+
+# Image Building
+image-build/** @kushin77
+
+# Build and Deployment
+scripts/** @kushin77
+Makefile @kushin77
+
+# CI/CD
+.github/workflows/** @kushin77
+
+# Configuration
+.github/** @kushin77
+.gitignore @kushin77
+.yamllint @kushin77
